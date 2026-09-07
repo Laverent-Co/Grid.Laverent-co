@@ -1,0 +1,162 @@
+{
+  "app_name": "CryptoBot Terminal",
+  "personality": "7 Dark-First Utility DARK",
+  "personality_one_liner": "A high-performance, dark-first institutional trading terminal prioritizing data density, rapid execution, and visual hierarchy over decorative elements.",
+  "color": {
+    "surface": "#0B0E11",
+    "onSurface": "#F0F2F5",
+    "surfaceSecondary": "#141620",
+    "onSurfaceSecondary": "#E1E4E8",
+    "surfaceTertiary": "#1E202B",
+    "onSurfaceTertiary": "#A0A5AD",
+    "surfaceInverse": "#FFFFFF",
+    "onSurfaceInverse": "#0B0E11",
+    "brand": "#FF9F0A",
+    "brandPrimary": "#FF9F0A",
+    "onBrandPrimary": "#000000",
+    "brandSecondary": "#E58600",
+    "onBrandSecondary": "#000000",
+    "brandTertiary": "#332002",
+    "onBrandTertiary": "#FF9F0A",
+    "success": "#32D74B",
+    "onSuccess": "#000000",
+    "warning": "#FFD60A",
+    "onWarning": "#000000",
+    "error": "#FF453A",
+    "onError": "#FFFFFF",
+    "info": "#E1E4E8",
+    "onInfo": "#000000",
+    "border": "#2B3139",
+    "borderStrong": "#FF9F0A",
+    "divider": "#1F242C",
+    "muted": "#787E87",
+    "onBrand": "#000000"
+  },
+  "typography": {
+    "displayFontFamily": "Rajdhani",
+    "textFontFamily": "IBM Plex Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Dense but legible. Use smaller padding (sm/md) for data rows and tables, keeping hierarchy clear with typography rather than large spatial gaps.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [],
+    "dont's": [
+      "No glassmorphism on dense data screens. Clarity and performance beat aesthetic in a trading terminal."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Auth & Vault",
+      "purpose": "Local PIN and biometric unlock for HSM-encrypted keys, plus the setup form for multi-exchange API connections.",
+      "states": {
+        "loading": "Centered mechanical spinner with 'Decrypting Vault...'",
+        "empty": "No API keys configured. Illustration of a secure vault, 'Connect an Exchange to begin.'",
+        "error": "Authentication failed or API Key invalid. Red alert banner with 'Retry' action."
+      },
+      "layout": "A rigid, secure login pad centered on screen. Once unlocked, a list view of connected exchanges (Binance, Coinbase, Kraken) with their active/inactive status badges. Forms should use labels above inputs and robust error validations."
+    },
+    {
+      "name": "Terminal Dashboard",
+      "purpose": "The primary command center showing aggregated Portfolio net worth, live P&L, and active bot fleet status.",
+      "states": {
+        "loading": "Skeleton loaders for portfolio numbers and charts to avoid layout shift.",
+        "empty": "No active bots. 'Deploy your first strategy' CTA.",
+        "error": "Websocket disconnected. Yellow/Red sticky warning banner at top: 'Live Feed Interrupted - Reconnecting...'"
+      },
+      "layout": "Top section: High-impact condensed numbers for total balance and 24h P&L. Middle: Fleet comparison list using mobile-first cards for each bot (showing health bars, realized P&L, and current regime). Bottom: Activity timeline of recent automated executions."
+    },
+    {
+      "name": "Strategy Config",
+      "purpose": "Detailed form to deploy or edit a trading strategy (Mean Reversion, Trend Following, Grid) with risk constraints.",
+      "states": {
+        "loading": "Spinner during backtest simulation or param save.",
+        "empty": "N/A - Always form based.",
+        "error": "Invalid parameter combinations (e.g., Kelly sizing > 100%). Inline red text under inputs."
+      },
+      "layout": "Single-column scrollable form. Segmented controls to select strategy type. Grouped input fields for Kelly Criterion sizing and max drawdown. A sticky 'Deploy Bot' CTA anchored at the bottom above the safe area."
+    },
+    {
+      "name": "Market Screener",
+      "purpose": "Live market visualization, regime detection (Trending/Ranging), and LLM-powered sentiment analysis feed.",
+      "states": {
+        "loading": "Skeleton rows for order book and asset list.",
+        "empty": "No assets match screener filters.",
+        "error": "Failed to fetch market data. 'Tap to reload' centered."
+      },
+      "layout": "Swipeable tab layout (Chart, Order Book, Sentiment). The Order Book view uses dense rows with subtle depth visualization. The sentiment feed uses a chat/timeline list layout highlighting bullish/bearish tags via semantic colors."
+    },
+    {
+      "name": "Trade Journal",
+      "purpose": "A chronological audit trail of all bot decisions, trades, and circuit breaker events.",
+      "states": {
+        "loading": "Skeleton list rows.",
+        "empty": "No trades executed yet. Muted text 'Awaiting bot execution...'",
+        "error": "Failed to load history. 'Retry sync' CTA."
+      },
+      "layout": "List-heavy view with subtle row separators (border color at 30% opacity). Each row displays the pair, strategy name, P&L (semantic color), and a chevron to expand for detailed decision factors."
+    }
+  ],
+  "images": {
+    "binance_logo": {
+      "url": "https://images.unsplash.com/photo-1670269069776-a1337c703669?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxCaW5hbmNlJTIwbG9nbyUyMHBuZyUyMHRyYW5zcGFyZW50fGVufDB8fHx8MTc4ODc4MjA5Nnww&ixlib=rb-4.1.0&q=85",
+      "alt": "Binance Exchange Logo"
+    }
+  },
+  "haptics": {
+    "events": {
+      "bot_start_stop": "impactMedium",
+      "tab_change": "selection",
+      "error_alert": "notificationError",
+      "trade_execution": "notificationSuccess",
+      "parameter_adjustment": "selection"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Follow the '7 Dark-First Utility DARK' personality rigidly. The UI must feel like an institutional trading terminal, not a playful fintech app.",
+    "Typography is critical: Use Rajdhani for all metrics, numbers, and high-impact headings. Use IBM Plex Sans for body text, labels, and forms. Cap font weight at 500 max.",
+    "Colors: NO BLUE, INDIGO, OR PURPLE ANYWHERE in the system UI. Rely on the #0B0E11 surface and #FF9F0A (Amber) brand accent. Semantic Red/Green are strictly for P&L and live status indicators.",
+    "When displaying Coinbase and Kraken entities, because their image selectors failed, use initials (CB and KR) enclosed in their real brand color backgrounds: #0052FF (Coinbase Blue) and #5741D9 (Kraken Purple). THIS IS THE ONLY PERMITTED USE OF BLUE/PURPLE, as it is a strict brand identity requirement.",
+    "Glassmorphism is disabled. Use solid surfaceSecondary (#141620) or surfaceTertiary (#1E202B) with 1pt borders (#2B3139) to separate hierarchy instead of shadows or blur.",
+    "For the Bot Dashboard, replace dense desktop tables with mobile-first card layouts. Use subtle row separators (divider token) for lists.",
+    "Ensure 'Sticky primary CTA over scrolling content' rule is applied for the 'Deploy Bot' button in the Strategy Config screen.",
+    "Implement wire haptic feedback for bot controls, tab changes, and parameter sliders (detailed in the haptics block).",
+    "Keep empty states professional with text or minimal Phosphor icons; avoid playful illustrations."
+  ]
+}
