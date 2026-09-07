@@ -16,7 +16,16 @@ type Sentiment = { pair: string; score: number; label: string; confidence: numbe
 
 const money = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
-const TABS = ["Chart", "Order Book", "Sentiment"] as const;
+const TABS = ["Chart", "Order Book", "Sentiment", "Heatmap"] as const;
+
+function Legend({ swatch, label }: { swatch: string; label: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: swatch }} />
+      <Text style={{ fontFamily: fonts.text, color: colors.muted, fontSize: 11 }}>{label}</Text>
+    </View>
+  );
+}
 
 export default function Market() {
   const insets = useSafeAreaInsets();
@@ -26,6 +35,10 @@ export default function Market() {
   const { data: detail } = usePolling<PairDetail>(() => api(`/market/${selected}`, { auth: false }), 4000, [selected]);
   const { data: book } = usePolling<Book>(() => api(`/market/${selected}/orderbook`, { auth: false }), 3000, [selected, tab]);
   const { data: sentiment, refresh: refreshSent } = usePolling<Sentiment>(() => api(`/sentiment/${selected}`), 60000, [selected]);
+  const { data: regimes } = usePolling<{ pair: string; regime: string; change_24h: number; volatility_pct: number; price: number }[]>(
+    () => api("/market/regimes", { auth: false }),
+    8000,
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   const doRefreshSentiment = async () => {
@@ -164,6 +177,49 @@ export default function Market() {
             )}
           </View>
         )}
+
+        {tab === "Heatmap" && (
+          <View testID="heatmap-panel">
+            <Text style={styles.driversTitle}>MARKET REGIME · LAST HOUR</Text>
+            <View style={styles.heatGrid}>
+              {(regimes || []).map((r) => {
+                const bg = r.regime === "trending"
+                  ? "rgba(50,215,75,0.14)"
+                  : r.regime === "volatile"
+                  ? "rgba(255,214,10,0.16)"
+                  : r.regime === "ranging"
+                  ? "rgba(255,159,10,0.14)"
+                  : colors.surfaceTertiary;
+                const border = r.regime === "trending"
+                  ? colors.success
+                  : r.regime === "volatile"
+                  ? colors.warning
+                  : r.regime === "ranging"
+                  ? colors.brandPrimary
+                  : colors.border;
+                return (
+                  <Pressable
+                    key={r.pair}
+                    style={[styles.heatCell, { backgroundColor: bg, borderColor: border }]}
+                    onPress={() => { setSelected(r.pair); setTab("Chart"); }}
+                    testID={`heat-${r.pair}`}
+                  >
+                    <Text style={styles.heatPair}>{r.pair.replace("USDT", "")}</Text>
+                    <Text style={styles.heatRegime}>{r.regime.toUpperCase()}</Text>
+                    <Text style={[styles.heatChange, { color: r.change_24h >= 0 ? colors.success : colors.error }]}>{pct(r.change_24h)}</Text>
+                    <Text style={styles.heatVol}>σ {r.volatility_pct.toFixed(2)}%</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.legend}>
+              <Legend swatch={colors.success} label="Trending" />
+              <Legend swatch={colors.brandPrimary} label="Ranging" />
+              <Legend swatch={colors.warning} label="Volatile" />
+              <Legend swatch={colors.muted} label="Low liq." />
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -210,4 +266,11 @@ const styles = StyleSheet.create({
   driversTitle: { fontFamily: fonts.textMedium, color: colors.muted, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   driver: { fontFamily: fonts.text, color: colors.onSurface, fontSize: 13 },
   headline: { fontFamily: fonts.text, color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 2 },
+  heatGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
+  heatCell: { width: "31%", minHeight: 100, borderRadius: radius.sm, borderWidth: 1, padding: spacing.sm, justifyContent: "space-between" },
+  heatPair: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 15, letterSpacing: 0.4 },
+  heatRegime: { fontFamily: fonts.textMedium, color: colors.onSurfaceSecondary, fontSize: 10, letterSpacing: 0.8 },
+  heatChange: { fontFamily: fonts.displayBold, fontSize: 13, marginTop: 2 },
+  heatVol: { fontFamily: fonts.text, color: colors.muted, fontSize: 10, marginTop: 2 },
+  legend: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, marginTop: spacing.md },
 });

@@ -47,6 +47,42 @@ fernet = Fernet(os.environ["VAULT_KEY"].encode())
 
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
+# ---------------------------------------------------------------------------
+# Push notifications (Emergent-managed SuprSend relay)
+# ---------------------------------------------------------------------------
+PUSH_BASE_URL = "https://integrations.emergentagent.com"
+PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
+_push_client = httpx.AsyncClient(
+    base_url=PUSH_BASE_URL,
+    headers={"X-Push-Key": PUSH_KEY},
+    timeout=10.0,
+)
+
+
+async def send_push(recipients: List[str], data: Dict[str, Any], idempotency_key: Optional[str] = None) -> None:
+    if not recipients:
+        return
+    if PUSH_KEY == "placeholder":
+        logger.info("push (placeholder key) → %s: %s", recipients, data.get("title"))
+        return
+    if "title" not in data or "message" not in data:
+        raise ValueError("data must include title and message")
+    payload: Dict[str, Any] = {"recipients": recipients[:100], "data": data}
+    if idempotency_key:
+        payload["$idempotency_key"] = idempotency_key
+    try:
+        resp = await _push_client.post("/api/v1/push/trigger", json=payload)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("push failed (non-blocking): %s", exc)
+
+
+async def push_all(data: Dict[str, Any], idempotency_key: Optional[str] = None) -> None:
+    """Send to every registered user_id we've seen for this app."""
+    ids = await db.push_users.distinct("user_id")
+    if ids:
+        await send_push(ids, data, idempotency_key=idempotency_key)
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -71,8 +107,15 @@ def decrypt(value: str) -> str:
 # Models
 # ---------------------------------------------------------------------------
 SUPPORTED_EXCHANGES = ["binance", "coinbase", "kraken"]
-SUPPORTED_STRATEGIES = ["mean_reversion", "trend_following", "grid"]
-SUPPORTED_PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+SUPPORTED_STRATEGIES = ["mean_reversion", "trend_following", "grid", "walking_grid"]
+# Free-tier pairs; Pro users can pass any pair (validated by presence in feed).
+DEFAULT_PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+# Expanded set the feed will keep warm when queried.
+EXTENDED_PAIRS = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+    "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "MATICUSDT",
+]
+SUPPORTED_PAIRS = EXTENDED_PAIRS
 
 
 class PinSetup(BaseModel):
@@ -183,7 +226,23 @@ class MarketFeed:
         self._task: Optional[asyncio.Task] = None
         self._client: Optional[httpx.AsyncClient] = None
 
-    _COINGECKO_IDS = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "SOLUSDT": "solana"}
+    _COINGECKO_IDS = {
+        "BTCUSDT": "bitcoin",
+        "ETHUSDT": "ethereum",
+        "SOLUSDT": "solana",
+        "BNBUSDT": "binancecoin",
+        "XRPUSDT": "ripple",
+        "ADAUSDT": "cardano",
+        "DOGEUSDT": "dogecoin",
+        "AVAXUSDT": "avalanche-2",
+        "LINKUSDT": "chainlink",
+        "MATICUSDT": "matic-network",
+    }
+    _SEEDS = {
+        "BTCUSDT": 68000.0, "ETHUSDT": 3500.0, "SOLUSDT": 160.0,
+        "BNBUSDT": 590.0, "XRPUSDT": 0.55, "ADAUSDT": 0.42,
+        "DOGEUSDT": 0.15, "AVAXUSDT": 32.0, "LINKUSDT": 14.5, "MATICUSDT": 0.68,
+    }
 
     async def start(self) -> None:
         self._client = httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "cryptobot-terminal/1.0"})
@@ -205,7 +264,7 @@ class MarketFeed:
                     raise ValueError("empty")
             except Exception as exc:  # pragma: no cover
                 logger.warning("warmup failed for %s: %s", pair, exc)
-                seed = {"BTCUSDT": 68000.0, "ETHUSDT": 3500.0, "SOLUSDT": 160.0}[pair]
+                seed = self._SEEDS.get(pair, 100.0)
                 for _ in range(120):
                     seed *= 1 + random.uniform(-0.001, 0.001)
                     self.history[pair].append(seed)
@@ -223,18 +282,17 @@ class MarketFeed:
         while True:
             try:
                 assert self._client is not None
+                ids = ",".join(self._COINGECKO_IDS.values())
                 r = await self._client.get(
                     "https://api.coingecko.com/api/v3/simple/price",
-                    params={"ids": "bitcoin,ethereum,solana", "vs_currencies": "usd"},
+                    params={"ids": ids, "vs_currencies": "usd"},
                 )
                 if r.status_code == 200:
                     data = r.json()
-                    mapping = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "SOLUSDT": "solana"}
-                    for sym, cg in mapping.items():
+                    for sym, cg in self._COINGECKO_IDS.items():
                         px = float(data.get(cg, {}).get("usd", self.prices.get(sym, 0)))
                         if px <= 0:
                             continue
-                        # Add micro noise so the strategy tick has movement between polls.
                         px = px * (1 + random.uniform(-0.0005, 0.0005))
                         self.prices[sym] = px
                         self.history[sym].append(px)
@@ -351,6 +409,47 @@ def signal_grid(price: float, params: Dict[str, Any], position: Optional[Dict[st
     return {"action": "hold", "grid_level": level_idx}
 
 
+def signal_walking_grid(
+    prices: List[float],
+    params: Dict[str, Any],
+    strat: Dict[str, Any],
+    position: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Dynamic grid — the band walks up (or down) when price breaks out and the bot
+    has been idle. Uses the strategy record itself to persist the current band via
+    `params["lower"]` / `params["upper"]`, which the engine writes back after each tick.
+
+    Extra params vs plain grid:
+      - drift_pct (default 0.02): fraction of band width to shift on breakout.
+      - idle_ticks (default 4): stored on the strategy as `idle_ticks`; when the grid
+        is idle and price is beyond the band by drift_pct * band, we walk the band.
+    """
+    price = prices[-1]
+    lower = float(params.get("lower", price * 0.95))
+    upper = float(params.get("upper", price * 1.05))
+    band = max(upper - lower, 1e-9)
+    drift_pct = float(params.get("drift_pct", 0.02))
+    idle_threshold = int(params.get("idle_ticks", 4))
+    idle = int(strat.get("idle_ticks", 0))
+
+    walk: Optional[Dict[str, float]] = None
+    if not position:
+        if price > upper and idle >= idle_threshold:
+            shift = band * drift_pct
+            walk = {"lower": lower + shift, "upper": upper + shift}
+        elif price < lower and idle >= idle_threshold:
+            shift = band * drift_pct
+            walk = {"lower": lower - shift, "upper": upper - shift}
+
+    # Delegate the entry/exit logic to the vanilla grid using the (possibly walked) band.
+    active_lower = walk["lower"] if walk else lower
+    active_upper = walk["upper"] if walk else upper
+    base = signal_grid(price, {"lower": active_lower, "upper": active_upper, "levels": params.get("levels", 6)}, position)
+    if walk:
+        base["walk"] = walk
+    return base
+
+
 # ---------------------------------------------------------------------------
 # Bot engine
 # ---------------------------------------------------------------------------
@@ -394,10 +493,13 @@ class BotEngine:
         position = strat.get("open_position")
 
         # Regime gating: mean reversion prefers ranging, trend prefers trending.
-        if strat["strategy_type"] == "mean_reversion":
+        stype = strat["strategy_type"]
+        if stype == "mean_reversion":
             sig = signal_mean_reversion(prices, strat.get("params", {}))
-        elif strat["strategy_type"] == "trend_following":
+        elif stype == "trend_following":
             sig = signal_trend_following(prices, vols, strat.get("params", {}))
+        elif stype == "walking_grid":
+            sig = signal_walking_grid(prices, strat.get("params", {}), strat, position)
         else:
             sig = signal_grid(price, strat.get("params", {}), position)
 
@@ -420,9 +522,62 @@ class BotEngine:
             if position:
                 await self._close_position(strat, price, reason="max_drawdown_hit", regime=regime)
             await db.strategies.update_one({"id": strat["id"]}, {"$set": update})
+            try:
+                await push_all(
+                    data={
+                        "title": f"⚠️ {strat['name']} halted",
+                        "message": f"Max drawdown reached on {strat['pair']}. New entries paused.",
+                        "action_url": f"/strategy/{strat['id']}",
+                    },
+                    idempotency_key=f"halt-{strat['id']}-{int(peak)}",
+                )
+            except Exception:
+                pass
             return
 
+        # Per-position stop-loss and trailing stop (applies to every strategy type).
+        risk = strat.get("risk", {}) or {}
+        stop_loss_pct = float(risk.get("stop_loss_pct", 0) or 0)
+        trailing_stop_pct = float(risk.get("trailing_stop_pct", 0) or 0)
+        if position:
+            entry = float(position["entry_price"])
+            highest = max(float(position.get("highest_price", entry)), price)
+            update.setdefault("open_position", dict(position))
+            update["open_position"]["highest_price"] = highest
+            if stop_loss_pct > 0 and (entry - price) / entry >= stop_loss_pct:
+                await self._close_position(strat, price, reason=f"stop_loss:{stop_loss_pct}", regime=regime)
+                fresh = await db.strategies.find_one({"id": strat["id"]}, {"_id": 0})
+                if fresh:
+                    update["equity"] = fresh.get("equity", equity)
+                    update["open_position"] = None
+                    update["unrealized_pnl"] = 0.0
+                await db.strategies.update_one({"id": strat["id"]}, {"$set": update})
+                return
+            if trailing_stop_pct > 0 and highest > entry and (highest - price) / highest >= trailing_stop_pct:
+                await self._close_position(strat, price, reason=f"trailing_stop:{trailing_stop_pct}", regime=regime)
+                fresh = await db.strategies.find_one({"id": strat["id"]}, {"_id": 0})
+                if fresh:
+                    update["equity"] = fresh.get("equity", equity)
+                    update["open_position"] = None
+                    update["unrealized_pnl"] = 0.0
+                await db.strategies.update_one({"id": strat["id"]}, {"$set": update})
+                return
+
         action = sig.get("action", "hold")
+
+        # Walking-grid: idle counter + band walk persistence.
+        if stype == "walking_grid":
+            if action == "hold":
+                update["idle_ticks"] = int(strat.get("idle_ticks", 0)) + 1
+            else:
+                update["idle_ticks"] = 0
+            walk = sig.get("walk")
+            if walk:
+                params = dict(strat.get("params", {}))
+                params["lower"] = walk["lower"]
+                params["upper"] = walk["upper"]
+                update["params"] = params
+                update["idle_ticks"] = 0
 
         if action == "buy" and not position:
             qty = max_notional / price
@@ -430,16 +585,16 @@ class BotEngine:
             new_pos = {
                 "side": "long",
                 "entry_price": price,
+                "highest_price": price,
                 "qty": qty,
                 "opened_at": utcnow().isoformat(),
-                "reason": f"{strat['strategy_type']}:{sig}",
+                "reason": f"{stype}:{sig}",
             }
             update["open_position"] = new_pos
             update["equity"] = equity - fee
             await self._log_trade(strat, "buy", qty, price, fee, 0.0, str(sig), regime)
         elif action == "sell" and position:
             await self._close_position(strat, price, reason=str(sig), regime=regime)
-            # Re-read strategy since _close_position updated it.
             fresh = await db.strategies.find_one({"id": strat["id"]}, {"_id": 0})
             if fresh:
                 update["equity"] = fresh.get("equity", equity)
@@ -499,6 +654,20 @@ class BotEngine:
             "executed_at": utcnow(),
         }
         await db.trades.insert_one(trade)
+        # Fire-and-forget push. Never raises.
+        title = f"{strat['name']} {side.upper()} {strat['pair']}"
+        if side == "sell":
+            emoji = "🟢" if pnl >= 0 else "🔴"
+            msg = f"{emoji} Closed at ${price:,.2f} · P&L {pnl:+.2f}"
+        else:
+            msg = f"Opened at ${price:,.2f} · qty {qty:.6f}"
+        try:
+            await push_all(
+                data={"title": title, "message": msg, "action_url": f"/strategy/{strat['id']}"},
+                idempotency_key=trade["id"],
+            )
+        except Exception:
+            pass
 
 
 bot = BotEngine()
@@ -603,6 +772,39 @@ async def auth_lock(token: str = Depends(require_unlocked)) -> Dict[str, Any]:
     return {"locked": True}
 
 
+# ---- Push registration -----------------------------------------------------
+class RegisterPushBody(BaseModel):
+    user_id: str
+    platform: str  # android | ios
+    device_token: str
+
+
+@api.post("/register-push", status_code=201)
+async def register_push(body: RegisterPushBody) -> Dict[str, Any]:
+    """Relay device registration to SuprSend (Emergent-managed) and remember the
+    user_id locally so bot events can broadcast to it later.
+    """
+    await db.push_users.update_one(
+        {"user_id": body.user_id},
+        {"$set": {"user_id": body.user_id, "platform": body.platform, "last_seen": utcnow()}},
+        upsert=True,
+    )
+    if PUSH_KEY == "placeholder":
+        return {"status": "registered", "provider": "placeholder"}
+    try:
+        resp = await _push_client.post("/api/v1/push/users/register", json=body.model_dump())
+        if resp.status_code == 401:
+            raise HTTPException(500, "EMERGENT_PUSH_KEY invalid")
+        if resp.status_code >= 500:
+            raise HTTPException(502, "Push provider unavailable")
+        resp.raise_for_status()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("register-push relay failed: %s", exc)
+    return {"status": "registered"}
+
+
 # ---- Vault (exchange API keys) ---------------------------------------------
 def _mask(v: str) -> str:
     if len(v) <= 8:
@@ -658,6 +860,16 @@ async def delete_key(key_id: str, token: str = Depends(require_unlocked)) -> Dic
 
 
 # ---- Market data -----------------------------------------------------------
+@api.get("/market/supported")
+async def supported_meta() -> Dict[str, Any]:
+    return {
+        "exchanges": SUPPORTED_EXCHANGES,
+        "pairs": SUPPORTED_PAIRS,
+        "free_pairs": DEFAULT_PAIRS,
+        "strategies": SUPPORTED_STRATEGIES,
+    }
+
+
 @api.get("/market/pairs")
 async def market_pairs() -> List[Dict[str, Any]]:
     out = []
@@ -667,6 +879,28 @@ async def market_pairs() -> List[Dict[str, Any]]:
         out.append({
             **snap,
             "regime": detect_regime(prices) if prices else "low_liquidity",
+        })
+    return out
+
+
+@api.get("/market/regimes")
+async def market_regimes() -> List[Dict[str, Any]]:
+    """Heatmap payload — one row per pair with regime, 24h change, volatility %."""
+    out: List[Dict[str, Any]] = []
+    for p in SUPPORTED_PAIRS:
+        prices = list(feed.history.get(p, []))
+        if not prices:
+            out.append({"pair": p, "regime": "low_liquidity", "change_24h": 0.0, "volatility_pct": 0.0, "price": 0.0})
+            continue
+        window = prices[-30:] if len(prices) >= 30 else prices
+        mean = sum(window) / len(window)
+        vol = (stdev(window, len(window)) / mean * 100) if mean else 0.0
+        out.append({
+            "pair": p,
+            "regime": detect_regime(prices),
+            "change_24h": ((prices[-1] / prices[0]) - 1) * 100 if prices[0] else 0.0,
+            "volatility_pct": vol,
+            "price": prices[-1],
         })
     return out
 
@@ -722,6 +956,7 @@ def _strategy_out(s: Dict[str, Any]) -> Dict[str, Any]:
         "unrealized_pnl": s.get("unrealized_pnl", 0.0),
         "peak_equity": s.get("peak_equity", s["allocation_usdt"]),
         "open_position": s.get("open_position"),
+        "is_live": bool(s.get("is_live", False)),
         "created_at": s["created_at"],
     }
 
@@ -748,7 +983,7 @@ async def create_strategy(payload: StrategyIn, token: str = Depends(require_unlo
         "strategy_type": payload.strategy_type,
         "allocation_usdt": payload.allocation_usdt,
         "params": payload.params or _default_params(payload.strategy_type, payload.pair),
-        "risk": {"max_dd_pct": 0.05, "per_trade_pct": 0.02, **(payload.risk or {})},
+        "risk": {"max_dd_pct": 0.05, "per_trade_pct": 0.02, "stop_loss_pct": 0.0, "trailing_stop_pct": 0.0, **(payload.risk or {})},
         "status": "running",
         "regime": "low_liquidity",
         "equity": payload.allocation_usdt,
@@ -756,10 +991,157 @@ async def create_strategy(payload: StrategyIn, token: str = Depends(require_unlo
         "unrealized_pnl": 0.0,
         "peak_equity": payload.allocation_usdt,
         "open_position": None,
+        "idle_ticks": 0,
+        "is_live": False,
         "created_at": utcnow(),
     }
     await db.strategies.insert_one(rec)
     return _strategy_out(rec)
+
+
+@api.post("/strategies/{sid}/live")
+async def toggle_live(sid: str, token: str = Depends(require_unlocked)) -> Dict[str, Any]:
+    """Toggle a strategy between paper and live. Live requires an API key on file
+    for the strategy's exchange; execution stays paper until the user confirms and
+    real broker adapters are hooked (out of scope for this MVP).
+    """
+    strat = await db.strategies.find_one({"id": sid}, {"_id": 0})
+    if not strat:
+        raise HTTPException(404, "Strategy not found")
+    if not strat.get("is_live"):
+        # Enable live mode: require a key for this exchange.
+        key = await db.api_keys.find_one({"exchange": strat["exchange"]}, {"_id": 0})
+        if not key:
+            raise HTTPException(400, f"No API key on file for {strat['exchange']}. Add one in the Vault first.")
+        await db.strategies.update_one({"id": sid}, {"$set": {"is_live": True}})
+        return {"is_live": True}
+    await db.strategies.update_one({"id": sid}, {"$set": {"is_live": False}})
+    return {"is_live": False}
+
+
+class BacktestIn(BaseModel):
+    pair: str
+    strategy_type: str
+    allocation_usdt: float = 1000.0
+    params: Dict[str, Any] = Field(default_factory=dict)
+    risk: Dict[str, Any] = Field(default_factory=dict)
+
+
+@api.post("/backtest")
+async def backtest(payload: BacktestIn, token: str = Depends(require_unlocked)) -> Dict[str, Any]:
+    """Fast paper backtest against the last ~7d hourly CoinGecko history that the
+    market feed already warmed on startup, plus whatever ticks we've seen since.
+    Returns an equity curve and summary metrics.
+    """
+    if payload.pair not in SUPPORTED_PAIRS:
+        raise HTTPException(400, "Unsupported pair")
+    if payload.strategy_type not in SUPPORTED_STRATEGIES:
+        raise HTTPException(400, "Unsupported strategy")
+    prices = list(feed.history.get(payload.pair, []))
+    vols = list(feed.volume.get(payload.pair, []))
+    if len(prices) < 30:
+        raise HTTPException(400, "Not enough market history yet — try again in a few seconds.")
+
+    equity = float(payload.allocation_usdt)
+    peak = equity
+    per_trade_pct = float(payload.risk.get("per_trade_pct", 0.02))
+    max_dd_pct = float(payload.risk.get("max_dd_pct", 0.05))
+    stop_loss_pct = float(payload.risk.get("stop_loss_pct", 0) or 0)
+    trailing_stop_pct = float(payload.risk.get("trailing_stop_pct", 0) or 0)
+    params = payload.params or _default_params(payload.strategy_type, payload.pair)
+
+    position: Optional[Dict[str, Any]] = None
+    curve: List[Dict[str, Any]] = []
+    trade_count = 0
+    wins = 0
+    losses = 0
+    peak_equity = equity
+    lowest_equity = equity
+
+    # Walk history bar-by-bar starting after the strategy has enough lookback.
+    warmup = max(int(params.get("period", 20)), int(params.get("slow", 30)), 30)
+    for i in range(warmup, len(prices)):
+        window_prices = prices[: i + 1]
+        window_vols = vols[: i + 1]
+        px = window_prices[-1]
+        st = payload.strategy_type
+        if st == "mean_reversion":
+            sig = signal_mean_reversion(window_prices, params)
+        elif st == "trend_following":
+            sig = signal_trend_following(window_prices, window_vols, params)
+        elif st == "walking_grid":
+            sig = signal_walking_grid(window_prices, params, {"idle_ticks": 0}, position)
+        else:
+            sig = signal_grid(px, params, position)
+
+        # Trailing / stop-loss for open positions.
+        if position:
+            entry = position["entry_price"]
+            position["highest_price"] = max(position.get("highest_price", entry), px)
+            if stop_loss_pct > 0 and (entry - px) / entry >= stop_loss_pct:
+                pnl = (px - entry) * position["qty"] - position["qty"] * px * 0.001
+                equity += pnl
+                trade_count += 1
+                (wins if pnl > 0 else losses).__add__(1)
+                if pnl > 0: wins += 1
+                else: losses += 1
+                position = None
+            elif trailing_stop_pct > 0 and position["highest_price"] > entry and \
+                    (position["highest_price"] - px) / position["highest_price"] >= trailing_stop_pct:
+                pnl = (px - entry) * position["qty"] - position["qty"] * px * 0.001
+                equity += pnl
+                trade_count += 1
+                if pnl > 0: wins += 1
+                else: losses += 1
+                position = None
+
+        action = sig.get("action", "hold")
+        if action == "buy" and not position:
+            notional = min(per_trade_pct * equity * 25, payload.allocation_usdt)
+            notional = max(notional, 10.0)
+            qty = notional / px
+            fee = qty * px * 0.001
+            equity -= fee
+            position = {"entry_price": px, "qty": qty, "highest_price": px}
+        elif action == "sell" and position:
+            pnl = (px - position["entry_price"]) * position["qty"] - position["qty"] * px * 0.001
+            equity += pnl
+            trade_count += 1
+            if pnl > 0: wins += 1
+            else: losses += 1
+            position = None
+
+        peak_equity = max(peak_equity, equity)
+        lowest_equity = min(lowest_equity, equity)
+        # MDD halt (soft — we just stop trading and mark on curve)
+        if peak_equity > 0 and (peak_equity - equity) / peak_equity > max_dd_pct:
+            curve.append({"i": i, "equity": equity, "halted": True})
+            break
+        curve.append({"i": i, "equity": equity})
+
+    # Mark-to-market any open position at the final bar.
+    if position:
+        px = prices[-1]
+        unreal = (px - position["entry_price"]) * position["qty"]
+    else:
+        unreal = 0.0
+
+    total_return_pct = ((equity - payload.allocation_usdt) / payload.allocation_usdt) * 100 if payload.allocation_usdt else 0.0
+    max_dd = (peak_equity - lowest_equity) / peak_equity * 100 if peak_equity else 0.0
+    win_rate = (wins / trade_count * 100) if trade_count else 0.0
+
+    return {
+        "bars": len(prices),
+        "equity_curve": [c["equity"] for c in curve][-100:],
+        "trades": trade_count,
+        "wins": wins,
+        "losses": losses,
+        "win_rate_pct": win_rate,
+        "final_equity": equity + unreal,
+        "total_return_pct": total_return_pct,
+        "max_drawdown_pct": max_dd,
+        "halted_early": any(c.get("halted") for c in curve),
+    }
 
 
 def _default_params(strategy_type: str, pair: str) -> Dict[str, Any]:
@@ -768,6 +1150,8 @@ def _default_params(strategy_type: str, pair: str) -> Dict[str, Any]:
         return {"period": 20, "z_entry": 2.0}
     if strategy_type == "trend_following":
         return {"fast": 9, "slow": 30}
+    if strategy_type == "walking_grid":
+        return {"lower": price * 0.95, "upper": price * 1.05, "levels": 6, "drift_pct": 0.02, "idle_ticks": 4}
     return {"lower": price * 0.95, "upper": price * 1.05, "levels": 6}
 
 

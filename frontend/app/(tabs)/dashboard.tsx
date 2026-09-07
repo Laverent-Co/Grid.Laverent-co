@@ -1,9 +1,12 @@
 import Icon from "@react-native-vector-icons/feather";
 import { useRouter } from "expo-router";
+import { useEffect } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, setToken } from "@/src/api";
+import { registerForPushOnce } from "@/src/lib/push";
+import { useSubscription } from "@/src/lib/revenuecat";
 import { Card, Chip, ExchangeBadge, Metric } from "@/src/components/ui";
 import { Sparkline } from "@/src/components/sparkline";
 import { usePolling } from "@/src/usePolling";
@@ -51,9 +54,14 @@ const signed = (n: number) => `${n >= 0 ? "+" : ""}${money(n)}`;
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isPro, hasWalkingGrid } = useSubscription();
   const { data: portfolio } = usePolling<Portfolio>(() => api("/portfolio"), 4000);
   const { data: strategies } = usePolling<Strategy[]>(() => api("/strategies"), 4000);
   const { data: trades } = usePolling<Trade[]>(() => api("/trades?limit=8"), 6000);
+
+  useEffect(() => {
+    registerForPushOnce();
+  }, []);
 
   const totalPnl = (portfolio?.realized_pnl || 0) + (portfolio?.unrealized_pnl || 0);
   const totalTone: any = totalPnl >= 0 ? "pos" : "neg";
@@ -77,6 +85,9 @@ export default function Dashboard() {
           <Text style={styles.title}>Dashboard</Text>
         </View>
         <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <Pressable style={styles.iconBtn} testID="open-paywall-btn" onPress={() => router.push("/paywall")}>
+            <Icon name={isPro ? "star" : "zap"} size={18} color={isPro ? colors.brandPrimary : colors.onSurface} />
+          </Pressable>
           <Pressable style={styles.iconBtn} testID="open-vault-btn" onPress={() => router.push("/vault")}>
             <Icon name="shield" size={18} color={colors.onSurface} />
           </Pressable>
@@ -109,6 +120,8 @@ export default function Dashboard() {
         <View style={styles.rowBetween}>
           <Text style={styles.sectionTitle}>Fleet</Text>
           <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
+            <Chip label={isPro ? "PRO" : "FREE"} tone={isPro ? "brand" : "neutral"} />
+            {hasWalkingGrid && <Chip label="WG" tone="warn" />}
             <Chip label={`${portfolio?.active_bots || 0} RUNNING`} tone="pos" />
             {(portfolio?.halted_bots || 0) > 0 && <Chip label={`${portfolio?.halted_bots} HALTED`} tone="neg" />}
             <Pressable style={styles.killBtn} onPress={toggleKill} testID="kill-switch-btn">

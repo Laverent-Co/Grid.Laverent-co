@@ -1,5 +1,6 @@
 import Icon from "@react-native-vector-icons/feather";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -16,12 +17,26 @@ export default function StrategyDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data: s, refresh } = usePolling<any>(() => api(`/strategies/${id}`), 3000, [id]);
+  const [liveConfirm, setLiveConfirm] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const toggle = async () => {
     if (!s) return;
     if (s.status === "running") await api(`/strategies/${s.id}/pause`, { method: "POST", body: {} });
     else await api(`/strategies/${s.id}/resume`, { method: "POST", body: {} });
     refresh();
+  };
+
+  const confirmLive = async () => {
+    if (!s) return;
+    setLiveError(null);
+    try {
+      await api(`/strategies/${s.id}/live`, { method: "POST", body: {} });
+      setLiveConfirm(false);
+      refresh();
+    } catch (e: any) {
+      setLiveError(e.message || "Unable to toggle live mode");
+    }
   };
 
   const remove = async () => {
@@ -94,12 +109,45 @@ export default function StrategyDetail() {
             <Icon name={s.status === "running" ? "pause" : "play"} size={14} color={colors.onSurface} />
             <Text style={styles.actionText}>{s.status === "running" ? "Pause" : "Resume"}</Text>
           </Pressable>
+          <Pressable style={[styles.actionBtn, s.is_live && { borderColor: colors.brandPrimary }]} onPress={() => setLiveConfirm(true)} testID="detail-live-toggle">
+            <Icon name={s.is_live ? "check-circle" : "circle"} size={14} color={s.is_live ? colors.brandPrimary : colors.onSurface} />
+            <Text style={[styles.actionText, s.is_live && { color: colors.brandPrimary }]}>{s.is_live ? "Live" : "Go Live"}</Text>
+          </Pressable>
           <Pressable style={[styles.actionBtn, { borderColor: colors.error }]} onPress={remove} testID="detail-delete">
             <Icon name="trash-2" size={14} color={colors.error} />
             <Text style={[styles.actionText, { color: colors.error }]}>Delete</Text>
           </Pressable>
         </View>
       </ScrollView>
+
+      {liveConfirm && (
+        <View style={styles.modalBackdrop} testID="live-confirm-modal">
+          <View style={styles.modalCard}>
+            <Icon name="alert-triangle" size={24} color={colors.warning} />
+            <Text style={styles.modalTitle}>
+              {s.is_live ? "Return to paper mode?" : "Switch to LIVE trading?"}
+            </Text>
+            <Text style={styles.modalBody}>
+              {s.is_live
+                ? "Live orders will stop. The bot will keep simulating on paper."
+                : `Requires a ${s.exchange.toUpperCase()} API key in the Vault with TRADING permission only (never withdrawal). Real orders execute on your account.`}
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+              <Pressable style={[styles.modalBtn, { flex: 1 }]} onPress={() => setLiveConfirm(false)} testID="live-cancel">
+                <Text style={styles.actionText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalBtn, { flex: 1, backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
+                onPress={confirmLive}
+                testID="live-confirm"
+              >
+                <Text style={[styles.actionText, { color: colors.onBrandPrimary }]}>{s.is_live ? "Confirm" : "Enable Live"}</Text>
+              </Pressable>
+            </View>
+            {liveError && <Text style={styles.err}>{liveError}</Text>}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -146,4 +194,10 @@ const styles = StyleSheet.create({
   actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
   actionText: { fontFamily: fonts.textMedium, color: colors.onSurface, fontSize: 13 },
   emptyLine: { fontFamily: fonts.text, color: colors.muted, fontSize: 12 },
+  modalBackdrop: { position: "absolute", inset: 0 as any, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  modalCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, width: "100%", maxWidth: 360, alignItems: "center", gap: spacing.sm },
+  modalTitle: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 18, textAlign: "center" },
+  modalBody: { fontFamily: fonts.text, color: colors.onSurfaceSecondary, fontSize: 13, textAlign: "center", lineHeight: 18 },
+  modalBtn: { paddingVertical: 12, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceTertiary },
+  err: { color: colors.error, fontFamily: fonts.textMedium, fontSize: 12, marginTop: spacing.sm },
 });

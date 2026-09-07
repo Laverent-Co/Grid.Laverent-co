@@ -39,6 +39,7 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-status-bar",
+      "expo-notifications",
       "@react-native-vector-icons/feather"
     ],
     "experiments": {

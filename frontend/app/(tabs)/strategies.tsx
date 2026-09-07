@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { Card, Chip, ExchangeBadge } from "@/src/components/ui";
+import { useSubscription } from "@/src/lib/revenuecat";
 import { usePolling } from "@/src/usePolling";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 
@@ -21,6 +22,7 @@ type Strategy = {
   realized_pnl: number;
   unrealized_pnl: number;
   open_position: any;
+  is_live: boolean;
 };
 
 const money = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
@@ -29,7 +31,9 @@ const signed = (n: number) => `${n >= 0 ? "+" : ""}${money(n)}`;
 export default function Strategies() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isPro } = useSubscription();
   const { data, refresh } = usePolling<Strategy[]>(() => api("/strategies"), 4000);
+  const atLimit = !isPro && (data?.length || 0) >= 1;
 
   const toggle = async (s: Strategy) => {
     if (s.status === "running") await api(`/strategies/${s.id}/pause`, { method: "POST", body: {} });
@@ -42,6 +46,11 @@ export default function Strategies() {
     refresh();
   };
 
+  const onNew = () => {
+    if (atLimit) router.push("/paywall");
+    else router.push("/strategy-new");
+  };
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]} testID="strategies-screen">
       <View style={styles.header}>
@@ -51,11 +60,11 @@ export default function Strategies() {
         </View>
         <Pressable
           style={styles.newBtn}
-          onPress={() => router.push("/strategy-new")}
+          onPress={onNew}
           testID="new-strategy-btn"
         >
-          <Icon name="plus" size={14} color={colors.onBrandPrimary} />
-          <Text style={styles.newBtnText}>New</Text>
+          <Icon name={atLimit ? "lock" : "plus"} size={14} color={colors.onBrandPrimary} />
+          <Text style={styles.newBtnText}>{atLimit ? "Upgrade" : "New"}</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing["3xl"] }}>
@@ -82,6 +91,7 @@ export default function Strategies() {
                   label={s.status.toUpperCase()}
                   tone={s.status === "running" ? "pos" : s.status === "halted" ? "neg" : "warn"}
                 />
+                {s.is_live && <Chip label="LIVE" tone="brand" />}
               </View>
               <View style={styles.grid}>
                 <View style={styles.gridCell}>

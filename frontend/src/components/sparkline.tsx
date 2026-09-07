@@ -1,9 +1,12 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import Svg, { Line, Path } from "react-native-svg";
 
 import { colors } from "@/src/theme";
 
 type Props = { data: number[]; height?: number; strokeColor?: string; fill?: boolean };
+
+// Keep StyleSheet import so future consumers can safely extend without changing imports.
+StyleSheet.hairlineWidth;
 
 export function Sparkline({ data, height = 60, strokeColor, fill = true }: Props) {
   if (!data || data.length < 2) return <View style={{ height }} />;
