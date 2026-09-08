@@ -37,10 +37,10 @@ export default function Index() {
   return (
     <View style={styles.container} testID="splash-screen">
       <View style={styles.logoBadge}>
-        <Text style={styles.logoTicker}>CB</Text>
+        <Text style={styles.logoTicker}>GL</Text>
       </View>
-      <Text style={styles.title}>CryptoBot Terminal</Text>
-      <Text style={styles.sub}>Multi-exchange · Multi-strategy</Text>
+      <Text style={styles.title}>..::GRID::..</Text>
+      <Text style={styles.sub}>Laverent-Co.</Text>
       <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: spacing.xl }} />
     </View>
   );

@@ -81,7 +81,8 @@ export default function Dashboard() {
     <View style={[styles.root, { paddingTop: insets.top }]} testID="dashboard-screen">
       <View style={styles.header}>
         <View>
-          <Text style={styles.brand}>CRYPTOBOT · TERMINAL</Text>
+          <Text style={styles.brand}>..::GRID::..</Text>
+          <Text style={styles.brandSub}>Laverent-Co.</Text>
           <Text style={styles.title}>Dashboard</Text>
         </View>
         <View style={{ flexDirection: "row", gap: spacing.sm }}>
@@ -198,6 +199,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
   brand: { fontFamily: fonts.displayBold, color: colors.brandPrimary, letterSpacing: 2, fontSize: 10 },
+  brandSub: { fontFamily: fonts.text, color: colors.muted, fontSize: 9, marginTop: 1 },
   title: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 24 },
   iconBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
   cardLabel: { fontFamily: fonts.textMedium, color: colors.muted, fontSize: 10, letterSpacing: 1.2 },

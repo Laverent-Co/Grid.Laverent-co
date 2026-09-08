@@ -58,7 +58,8 @@ export default function Unlock() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl }]} testID="unlock-screen">
       <View style={styles.header}>
-        <Text style={styles.brand}>CRYPTOBOT · SECURE VAULT</Text>
+        <Text style={styles.brand}>..::GRID::..</Text>
+        <Text style={styles.brandSub}>Laverent-Co.</Text>
         <Text style={styles.title}>Enter PIN</Text>
         <Text style={styles.sub}>API keys never leave the encrypted vault. Withdrawal is disabled by policy.</Text>
       </View>
@@ -79,7 +80,8 @@ export default function Unlock() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.xl },
   header: { alignItems: "center", marginBottom: spacing["2xl"] },
-  brand: { fontFamily: fonts.displayBold, color: colors.brandPrimary, letterSpacing: 2, fontSize: 12, marginBottom: spacing.md },
+  brand: { fontFamily: fonts.displayBold, color: colors.brandPrimary, letterSpacing: 2, fontSize: 12 },
+  brandSub: { fontFamily: fonts.text, color: colors.muted, fontSize: 10, marginTop: 2, marginBottom: spacing.md },
   title: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 26 },
   sub: { fontFamily: fonts.text, color: colors.muted, fontSize: 13, textAlign: "center", marginTop: spacing.sm, paddingHorizontal: spacing.md },
   padWrap: { flex: 1, alignItems: "center", justifyContent: "center" },

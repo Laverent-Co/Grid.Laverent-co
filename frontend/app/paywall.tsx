@@ -57,7 +57,8 @@ export default function Paywall() {
           <Icon name="chevron-left" size={20} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.brand}>UPGRADE · CRYPTOBOT</Text>
+          <Text style={styles.brand}>..::GRID::..</Text>
+          <Text style={styles.brandSub}>Laverent-Co.</Text>
           <Text style={styles.title}>Unlock the fleet</Text>
         </View>
       </View>
@@ -88,7 +89,7 @@ export default function Paywall() {
           <View style={styles.rowBetween}>
             <View>
               <Text style={styles.tierTag}>PRO</Text>
-              <Text style={styles.tierTitle}>CryptoBot Pro</Text>
+              <Text style={styles.tierTitle}>Grid Pro</Text>
             </View>
             {isPro && <View style={styles.ownedPill}><Text style={styles.ownedText}>ACTIVE</Text></View>}
           </View>
@@ -166,6 +167,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.md },
   back: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
   brand: { fontFamily: fonts.displayBold, color: colors.brandPrimary, letterSpacing: 2, fontSize: 10 },
+  brandSub: { fontFamily: fonts.text, color: colors.muted, fontSize: 9, marginTop: 1 },
   title: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 24 },
   card: { padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, marginBottom: spacing.md, backgroundColor: colors.surfaceSecondary },
   cardPro: { borderColor: colors.brandPrimary },

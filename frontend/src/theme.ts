@@ -1,4 +1,4 @@
-// Design tokens for CryptoBot Terminal — dark-first institutional trading terminal.
+// Design tokens for Grid.Laverent-Co — dark-first institutional trading terminal.
 // Values come from /app/design_guidelines.json. Dark scheme only; the app forces
 // dark to keep the terminal aesthetic on every device.
 
