@@ -1,0 +1,16 @@
+# Base44 dev image for the CryptoBot backend.
+# Installs system + Python deps only; source is bind-mounted at runtime.
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ make autoconf libtool flex libjq-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+# emergentintegrations is a private Emergent platform package not on PyPI.
+# It's only used for optional LLM sentiment analysis (server.py has a lexical fallback).
+RUN grep -v 'emergentintegrations' requirements.txt > /tmp/reqs.txt && \
+    pip install --no-cache-dir -r /tmp/reqs.txt httpx
+
+EXPOSE 8000

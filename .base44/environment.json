@@ -1,0 +1,17 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "EMERGENT_LLM_KEY",
+      "description": "Emergent LLM API key for Claude Sonnet sentiment analysis (optional — app falls back to a lexical heuristic without it). Obtain from the Emergent dashboard.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "EMERGENT_PUSH_KEY",
+      "description": "Emergent push notification key for the SuprSend relay (optional — push notifications are skipped without it). Obtain from the Emergent dashboard.",
+      "requiredAtBoot": false
+    }
+  ]
+}

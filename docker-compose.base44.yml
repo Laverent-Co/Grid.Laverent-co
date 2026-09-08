@@ -1,0 +1,66 @@
+# Base44 dev environment for CryptoBot Terminal.
+# Frontend (Expo web) on port 3000, FastAPI backend on port 8000, MongoDB.
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: cryptobot
+      MONGO_INITDB_ROOT_PASSWORD: cryptobotpw
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.base44
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://cryptobot:cryptobotpw@mongo:27017
+      DB_NAME: cryptobot
+      VAULT_KEY: hiLm24oCJG2zSjjGcJQcnNptD3hTPktNAJz_GswLikI=
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    image: node:22
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "3000:3000"
+    environment:
+      EXPO_PUBLIC_BACKEND_URL: https://8000-${BASE44_PUBLIC_HOST_SUFFIX}
+      EXPO_ROUTER_ORIGIN: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+    command: >
+      bash -c "
+      corepack enable &&
+      yarn install --frozen-lockfile &&
+      npx expo start --web --port 3000 --host lan
+      "
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
