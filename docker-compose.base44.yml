@@ -53,6 +53,9 @@ services:
       EXPO_PUBLIC_BACKEND_URL: https://8000-${BASE44_PUBLIC_HOST_SUFFIX}
       EXPO_ROUTER_ORIGIN: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
       EXPO_UNSTABLE_HEADLESS: "1"
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
     command: >
       bash -c "
       corepack enable &&
